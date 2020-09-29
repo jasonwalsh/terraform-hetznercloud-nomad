@@ -3,11 +3,8 @@ terraform {
     hcloud = {
       source = "hetznercloud/hcloud"
     }
-    http = {
-      source = "hashicorp/http"
-    }
-    tls = {
-      source = "hashicorp/tls"
+    null = {
+      source = "hashicorp/null"
     }
   }
   required_version = ">= 0.13"

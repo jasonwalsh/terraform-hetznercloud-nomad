@@ -3,16 +3,6 @@ provider "hcloud" {}
 locals {
   configuration = {
     data_dir = "/var/lib/nomad"
-
-    server = {
-      bootstrap_expect = var.server_count
-      enabled          = true
-
-      server_join = {
-        retry_interval = "15s"
-        retry_join     = [for server in hcloud_server.nomad : server.ipv4_address]
-      }
-    }
   }
 
   download_url = format(
@@ -61,109 +51,27 @@ resource "hcloud_network" "nomad" {
   name     = "nomad"
 }
 
-resource "hcloud_network_subnet" "nomad" {
-  ip_range     = "10.0.1.0/24"
-  network_id   = hcloud_network.nomad.id
-  network_zone = "eu-central"
-  type         = "cloud"
+module "server" {
+  source = "./modules/agent"
+
+  configuration = local.configuration
+  ip_range      = "10.0.1.0/24"
+  private_key   = local.private_key
+  network_id    = hcloud_network.nomad.id
+  ssh_key       = hcloud_ssh_key.ssh_key.id
+  user_data     = local.user_data
 }
 
-resource "hcloud_server" "nomad" {
-  count = var.server_count
+module "client" {
+  source = "./modules/agent"
 
-  image       = "ubuntu-20.04"
-  name        = format("nomad-server-%d", count.index + 1)
-  server_type = var.server_type
-  ssh_keys    = [hcloud_ssh_key.ssh_key.id]
-
-  user_data = <<EOF
-#cloud-config
-${yamlencode(local.user_data)}
-  EOF
-
-  provisioner "remote-exec" {
-    inline = [
-      "cloud-init status --wait"
-    ]
-
-    connection {
-      host        = self.ipv4_address
-      private_key = local.private_key
-      type        = "ssh"
-      user        = "root"
-    }
-  }
-}
-
-resource "hcloud_server_network" "nomad" {
-  count = var.server_count
-
-  ip         = format("10.0.1.%d", count.index + 4)
-  network_id = hcloud_network.nomad.id
-  server_id  = hcloud_server.nomad[count.index].id
-}
-
-resource "null_resource" "nomad" {
-  count = var.server_count
-
-  triggers = {
-    configuration = jsonencode(local.configuration)
-    instance_ids  = join(",", hcloud_server.nomad[*].id)
-  }
-
-  connection {
-    host        = hcloud_server.nomad[count.index].ipv4_address
-    private_key = local.private_key
-    type        = "ssh"
-    user        = "root"
-  }
-
-  provisioner "file" {
-    content     = jsonencode(local.configuration)
-    destination = "/etc/nomad.d/server.json"
-  }
-
-  provisioner "remote-exec" {
-    inline = [
-      "systemctl start nomad"
-    ]
-  }
-}
-
-resource "hcloud_load_balancer" "nomad" {
-  load_balancer_type = var.load_balancer_type
-  location           = "nbg1"
-  name               = "nomad"
-}
-
-resource "hcloud_load_balancer_target" "nomad" {
-  count = var.server_count
-
-  load_balancer_id = hcloud_load_balancer.nomad.id
-  server_id        = hcloud_server.nomad[count.index].id
-  type             = "server"
-}
-
-resource "hcloud_load_balancer_service" "nomad" {
-  health_check {
-    http {
-      path = "/"
-
-      status_codes = [
-        "2??",
-        "3??"
-      ]
-    }
-
-    interval = 15
-    port     = 4646
-    protocol = "http"
-    retries  = 3
-    timeout  = 10
-  }
-
-  destination_port = 4646
-  listen_port      = 80
-  load_balancer_id = hcloud_load_balancer.nomad.id
-  protocol         = "http"
+  configuration = local.configuration
+  ip_range      = "10.0.2.0/24"
+  private_key   = local.private_key
+  network_id    = hcloud_network.nomad.id
+  server        = false
+  servers       = module.server.ip_addresses
+  server_count  = 1
+  ssh_key       = hcloud_ssh_key.ssh_key.id
+  user_data     = local.user_data
 }
