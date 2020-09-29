@@ -1,7 +1,4 @@
 output "load_balancer" {
-  value = module.server.load_balancer
-}
-
-output "nomad_version" {
-  value = local.nomad_version
+  description = "IPv4 Address of the Load Balancer"
+  value       = module.server.load_balancer
 }
